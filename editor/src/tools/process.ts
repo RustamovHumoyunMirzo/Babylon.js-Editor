@@ -25,31 +25,37 @@ export function getFilePathArgument(argv?: string[] | null): string | null {
 
 let envPathComputed = false;
 
+function ensureEnvironmentPathComputed(): void {
+	if (envPathComputed) {
+		return;
+	}
+
+	try {
+		switch (platform()) {
+			case "darwin":
+				const path = execSync("/usr/libexec/path_helper -s", {
+					encoding: "utf8",
+				});
+
+				const match = path.match(/PATH="([^"]+)"/);
+				if (match) {
+					process.env.PATH = match[1];
+				}
+				break;
+		}
+	} catch (e) {
+		console.error("Failed to execute /usr/bin/env to get the environment variables:", e);
+	} finally {
+		envPathComputed = true;
+	}
+}
+
 /**
  * Executes the given command asynchronously using `child_process`
  * @param command defines the command to execute.
  */
 export function executeAsync(command: string): Promise<void> {
-	if (!envPathComputed) {
-		try {
-			switch (platform()) {
-				case "darwin":
-					const path = execSync("/usr/libexec/path_helper -s", {
-						encoding: "utf8",
-					});
-
-					const match = path.match(/PATH="([^"]+)"/);
-					if (match) {
-						process.env.PATH = match[1];
-					}
-					break;
-			}
-		} catch (e) {
-			console.error("Failed to execute /usr/bin/env to get the environment variables:", e);
-		} finally {
-			envPathComputed = true;
-		}
-	}
+	ensureEnvironmentPathComputed();
 
 	return new Promise<void>((resolve, reject) => {
 		exec(command, (error, stdout, stderr) => {
@@ -139,10 +145,13 @@ export async function isPackageManagerAvailable(packageManager: EditorProjectPac
 				break;
 		}
 
-		const p = await execNodePty(command);
-		const code = await p.wait();
+		ensureEnvironmentPathComputed();
 
-		return code === 0;
+		return await new Promise<boolean>((resolve) => {
+			exec(command, { windowsHide: true, timeout: 10_000 }, (error) => {
+				resolve(!error);
+			});
+		});
 	} catch (e) {
 		return false;
 	}

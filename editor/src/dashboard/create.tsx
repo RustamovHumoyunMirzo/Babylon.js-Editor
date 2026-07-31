@@ -1,6 +1,6 @@
-import { join } from "path/posix";
+import { join } from "path";
 import { ipcRenderer } from "electron";
-import { readJSON, remove, writeJSON } from "fs-extra";
+import { copy, pathExists, readFile, readJSON, remove, writeJSON } from "fs-extra";
 
 import decompress from "decompress";
 import decompressTargz from "decompress-targz";
@@ -33,6 +33,46 @@ export interface IDashboardCreateProjectDialogProps {
 
 type PackageManagerCheckState = "processing" | "available" | "not-available";
 
+function getTemplateArchiveCandidates(template: EditorProjectTemplate): string[] {
+	const fileName = `${template}.tgz`;
+	const resourcesPath = process.resourcesPath;
+
+	return [
+		join(process.cwd(), "templates", fileName),
+		join(process.cwd(), "..", "templates", fileName),
+		join(process.cwd(), "..", "editor", "templates", fileName),
+		resourcesPath ? join(resourcesPath, "templates", fileName) : "",
+	].filter(Boolean);
+}
+
+function getTemplateSourceCandidates(template: EditorProjectTemplate): string[] {
+	return [join(process.cwd(), "..", "templates", template), join(process.cwd(), "templates", template)];
+}
+
+async function findExistingPath(paths: string[]): Promise<string | null> {
+	for (const path of paths) {
+		if (await pathExists(path)) {
+			return path;
+		}
+	}
+
+	return null;
+}
+
+function shouldCopyTemplateFile(src: string): boolean {
+	const normalized = src.replace(/\\/g, "/");
+
+	return ![
+		"/node_modules/",
+		"/.next/",
+		"/.nuxt/",
+		"/.output/",
+		"/dist/",
+		"/electron-packages/",
+		"/public/scene/",
+	].some((part) => normalized.includes(part));
+}
+
 export function DashboardCreateProjectDialog(props: IDashboardCreateProjectDialogProps) {
 	const [destination, setDestination] = useState("");
 	const [packageManager, setPackageManager] = useState<EditorProjectPackageManager>("npm");
@@ -62,20 +102,34 @@ export function DashboardCreateProjectDialog(props: IDashboardCreateProjectDialo
 	}
 
 	async function setupTemplate(destination: string, template: EditorProjectTemplate) {
-		const templatePath = process.env.DEBUG ? `templates/${template}.tgz` : `../../templates/${template}.tgz`;
-		const templateBlob = await fetch(templatePath).then((r) => r.blob());
-		const buffer = Buffer.from(await templateBlob.arrayBuffer());
+		const templateArchivePath = await findExistingPath(getTemplateArchiveCandidates(template));
 
-		// Extract template.
-		await decompress(buffer, destination, {
-			plugins: [decompressTargz()],
-			map: (file) => {
-				file.path = file.path.replace("package/", "");
-				return file;
-			},
-		});
+		if (templateArchivePath) {
+			const buffer = await readFile(templateArchivePath);
 
-		await remove(join(destination, "package"));
+			// Extract template.
+			await decompress(buffer, destination, {
+				plugins: [decompressTargz()],
+				map: (file) => {
+					file.path = file.path.replace("package/", "");
+					return file;
+				},
+			});
+
+			await remove(join(destination, "package"));
+		} else if (process.env.DEBUG) {
+			const templateSourcePath = await findExistingPath(getTemplateSourceCandidates(template));
+
+			if (!templateSourcePath) {
+				throw new Error(`Template "${template}" was not found.`);
+			}
+
+			await copy(templateSourcePath, destination, {
+				filter: shouldCopyTemplateFile,
+			});
+		} else {
+			throw new Error(`Template archive "${template}.tgz" was not found.`);
+		}
 
 		// Configure project file.
 		const projectAbsolutePath = join(destination, "project.bjseditor");

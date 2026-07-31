@@ -1,6 +1,6 @@
 import { platform } from "os";
 import { ipcMain } from "electron";
-import { spawn, IPty } from "node-pty";
+import { IPty, IPtyForkOptions, IWindowsPtyForkOptions, spawn } from "node-pty";
 import { pathExistsSync } from "fs-extra";
 
 interface IStoredNodePty {
@@ -45,16 +45,21 @@ ipcMain.on("editor:create-node-pty", (ev, command, id, options, forcedShell) => 
 		args.push("-l");
 	}
 
-	const p = spawn(shell!, args, {
+	const spawnOptions: IPtyForkOptions | IWindowsPtyForkOptions = {
 		cols: 80,
 		rows: 30,
 		name: "xterm-color",
-		encoding: "utf-8",
 		useConpty: false,
 		cwd: options?.cwd ?? process.cwd(),
 		env: options?.env ?? process.env,
 		...options,
-	});
+	};
+
+	if (platform() !== "win32") {
+		spawnOptions.encoding = "utf-8";
+	}
+
+	const p = spawn(shell!, args, spawnOptions);
 
 	p.onData((data) => {
 		if (!ev.sender.isDestroyed()) {
