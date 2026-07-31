@@ -15,7 +15,7 @@
 		"watch": "concurrently -i \"tsc -p . --watch\" \"node esbuild.mjs --watch\" -c bgYellow.bold,bgBlue.bold --names editor-ts,editor-dependencies",
 		"watch-css": "tailwindcss -i ./index.css -o ./build/index.css --watch",
 		"watch-all": "concurrently \"yarn watch\" \"yarn watch-css\" \"node esbuild.mjs --watch\" -c bgYellow.bold,bgBlue.bold,bgGreen.bold --names editor-ts,editor-css,editor-dependencies",
-		"start": "electron .",
+		"start": "node ./start.mjs",
 		"test": "vitest run",
 		"watch-test": "vitest --watch",
 		"coverage": "vitest run --coverage"
